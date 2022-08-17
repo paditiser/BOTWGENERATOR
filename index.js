@@ -4,12 +4,23 @@ const fs = require('fs');
 const readline = require('readline');
 const {google} = require('googleapis');
 
+const BOTW_URL = "https://www.iherb.com/c/brands-of-the-week";
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+const ACCOUNTS = [
+  ["Germany", ["German"], "Gary", ["DE"]],
+  ["India", ["English"], "Bruce", ["IN"]],
+  ["United Kingdom", ["English"], "Gary", ["UK"]], 
+  ["Canada", ["English", "French"], "Mahdi", ["CA", "CA1"]],
+  ["Australia", ["English"], "Sean", ["AU"]],
+  ["United States", ["English"], "Sean", ["US"]],
+  ["France", ["French"], "Bruce", ["FR"]]
+];
 
-var brandIds = [];
-var brandUrls = [];
-var brandNames = [];
-var brandDiscounts = [];
+let SPREADSHEET_ID = null;
+let _brandIds = [];
+let _brandUrls = [];
+let _brandNames = [];
+let _brandDiscounts = [];
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 
                 'https://www.googleapis.com/auth/drive', 
@@ -62,107 +73,127 @@ function exportData(auth) {
     const drive = google.drive({version: 'v3', auth})
 
     const resource = createBrandsOfTheWeekBuildout();
-    consoleLogSpreadSheet(resource)
+    console.log("here")
+    //consoleLogSpreadSheet(resource)
 
-    sheets.spreadsheets.create({resource, fields: 'spreadsheetId'}, (err, spreadsheet) => {
-        if (err) {
-            // Handle error.
-            console.log(err);
-        } else {
-            console.log(spreadsheet);
-            console.log(`Spreadsheet ID: ${spreadsheet.data.spreadsheetId}`);
+    const buildoutSpreadsheet = sheets.spreadsheets.create({resource, fields: 'spreadsheetId'}, (err, spreadsheet) => {
+      if (err) {
+        // Handle error.
+        console.log(err);
+      } else {
+        console.log(spreadsheet);
+        console.log(`Spreadsheet ID: ${spreadsheet.data.spreadsheetId}`);
+        SPREADSHEET_ID = spreadsheet.data.spreadsheetId;
+        //shares file
+        /*drive.permissions.create({
+            "fileId": spreadsheet.data.spreadsheetId,
+            "resource": {
+                "role": "writer",
+                "type": "user",
+                "emailAddress": "bruce@aditiser.com"
+            }
+        }).then((res) => {
+            console.log(res);
+        });
 
-            //shares file
-            drive.permissions.create({
-                "fileId": spreadsheet.data.spreadsheetId,
-                "resource": {
-                    "role": "writer",
-                    "type": "user",
-                    "emailAddress": "bruce@aditiser.com"
-                }
-            }).then((res) => {
-                console.log(res);
-            });
-
-            drive.permissions.create({
-              "fileId": spreadsheet.data.spreadsheetId,
-              "resource": {
-                  "role": "writer",
-                  "type": "user",
-                  "emailAddress": "mahdi@aditiser.com"
-              }
-          }).then((res) => {
-              console.log(res);
-          });
-            
-            /*axios.post(`https://www.googleapis.com/drive/v3/files/${spreadsheet.data.spreadsheetId}/permissions?sendNotificationEmail=true`, {
-                role: "writer",
-                type: "user",
-                emailAddress: "pfaraee@gmail.com"
-            })
-            .then((res) => {
-                console.log(res);
-            });*/
-        }
+        drive.permissions.create({
+          "fileId": spreadsheet.data.spreadsheetId,
+          "resource": {
+              "role": "writer",
+              "type": "user",
+              "emailAddress": "mahdi@aditiser.com"
+          }
+        }).then((res) => {
+            console.log(res);
+        });*/
+        
+        /*axios.post(`https://www.googleapis.com/drive/v3/files/${spreadsheet.data.spreadsheetId}/permissions?sendNotificationEmail=true`, {
+            role: "writer",
+            type: "user",
+            emailAddress: "pfaraee@gmail.com"
+        })
+        .then((res) => {
+            console.log(res);
+        });*/
+      }
     });
+
+    //console.log(buildoutSpreadsheet);
+
 }
 
-const getData = async () => {
-    try {
-        const body = await axios.get("https://www.iherb.com/c/brands-of-the-week");
-        const $ = cheerio.load(body.data);
+async function getHTML(url) {
+  const body = await axios.get(url);
+  const $ = cheerio.load(body.data);
+  return $;
+}
 
-        var brandElements = $("img.bow-img", "#brands-of-week");
+function getBrandIds($) {
+  let brandIds = [];
+  const brandElements = $("img.bow-img", "#brands-of-week");
 
-        brandElements.each((id, el) => {
-            brandIds.push($(el).attr('data-brand-id'))
-        });
+  brandElements.each((id, el) => {
+      brandIds.push($(el).attr('data-brand-id'))
+  });
 
-        console.log(brandIds);
+  return brandIds;
+}
 
-        for (const brandId of brandIds.values()) {
-            const brandPageBody = await axios.get("https://www.iherb.com/c/brands-of-the-week?bids="+brandId);
-            var brandPage = cheerio.load(brandPageBody.data);
+function getBrandData(brandPage) {
+  let brandUrls = [];
+  // GET URL
+  var productsElements = brandPage(".product-link", "#ProductsPage");
+  brandUrls.push(productsElements[0].attribs['href'])
+  _brandUrls.push(productsElements[0].attribs['href'])
+  
+  let brandNames = [];
+  // GET BrandName
+  var title = productsElements[0].attribs['title'];
+  var brandName = title.slice(0, title.indexOf(','))
+  brandNames.push(brandName)
+  _brandNames.push(brandName)
 
-            var productsElements = brandPage(".product-link", "#ProductsPage");
-            brandUrls.push(productsElements[0].attribs['href'])
-            var title = productsElements[0].attribs['title'];
+  let brandDiscounts = [];
+  // Get Discounts
+  var discountElements = brandPage(".discount-in-cart", "#ProductsPage")
+  var discountList = [];
 
-            var brandName = title.slice(0, title.indexOf(','))
-            brandNames.push(brandName)
-            var discountElements = brandPage(".discount-in-cart", "#ProductsPage")
+  discountElements.each((id, el) => {
+      var title = brandPage(el).attr('title');
 
-            var discountList = [];
+      discountList.push(Number(title.slice(5, 7)));
+  });
 
-            discountElements.each((id, el) => {
-                var title = brandPage(el).attr('title');
+  brandDiscounts.push(findMode(discountList));
+  _brandDiscounts.push(findMode(discountList));
+}
 
-                discountList.push(Number(title.slice(5, 7)));
-            });
+const main = async () => {
+  try {
+    const body = await getHTML(BOTW_URL);
+    _brandIds = getBrandIds(body);
+       
+    console.log("Root BOTW URL scraped")
+    console.log(_brandIds);
 
-            brandDiscounts.push(findMode(discountList));
-        }
-        console.log(brandUrls)
-       /* for (const brandUrl of brandUrls.values()) {
-            const productPageBody = await axios.get(brandUrl);
-
-            var productPage = cheerio.load(productPageBody.data);
-
-            var brandNameElements = productPage("bdi", "#brand")
-            brandNames.push((brandNameElements[1].children[0].data));
-        }*/
-        console.log("here")
-        // Load client secrets from a local file.
-        fs.readFile('credentials.json', (err, content) => {
-            if (err) return console.log('Error loading client secret file:', err);
-            // Authorize a client with credentials, then call the Google Sheets API.
-            console.log("no err")
-            authorize(JSON.parse(content), exportData);
-        });
-        
-    } catch (e) {
-      console.log(e)
+    for (const brandId of _brandIds.values()) {
+      const brandPage = await getHTML(`${BOTW_URL}?bids=${brandId}`);
+      getBrandData(brandPage);
     }
+    console.log("Brand data acquired")
+    console.log(_brandUrls)
+
+    // Load client secrets from a local file.
+    fs.readFile('credentials.json', (err, content) => {
+        if (err) return console.log('Error loading client secret file:', err);
+        // Authorize a client with credentials, then call the Google Sheets API.
+        console.log("Client Authorized")
+        authorize(JSON.parse(content), exportData);
+    });
+    
+  } catch (e) {
+    console.log(e)
+  }
 }
 function consoleLogSpreadSheet(spreadSheet) {
     var rows = spreadSheet.sheets[0].data[0].rowData;
@@ -176,108 +207,153 @@ function consoleLogSpreadSheet(spreadSheet) {
       console.log(rowText)
     }
   }
+
+
 function createBrandsOfTheWeekBuildout() {
-    let d = new Date();
+  const d = new Date();
 
-    let month = d.getMonth();
-    let day = d.getDate();
-    let year = d.getFullYear();
+  const month = d.getMonth();
+  const day = d.getDate();
+  const year = d.getFullYear();
 
-    var spreadSheet = createSpreadSheet("Brands of the Week " + (month + 1) + "/" + day + "/" + year, ["promotion_id", "product_applicability", "offer_type", "long_title", "promotion_effective_dates", "redemption_channel", "promotion_display_dates", "generic_redemption_code", "minimum_purchase_amount", "filter"]);
+  let sheets = [];
 
-    for (let i = 0; i < brandIds.length; i++){
-        d = new Date();
-        month = d.getMonth();
-        day = d.getDate();
-        year = d.getFullYear();
+  for (let i = 0; i < ACCOUNTS.length; i++) {
+    const account = ACCOUNTS[i];
 
-        const promotion_id = brandIds[i] + d.getFullYear() + MONTHS[d.getMonth()] + "CA";
-        const product_applicability = "SPECIFIC_PRODUCTS";
-        const offer_type = "NO_CODE";
-        const long_title = brandDiscounts[i]+"% Off Selected " +brandNames[i] + " Products";
-        let promotion_effective_dates = year+ "-" + (month  + 1).toString().padStart(2, '0') + "-" + day + "T10:00:00-00:00/";
-        d.setDate(day + 7);
-        month = d.getMonth();
-        day = d.getDate();
-        year = d.getFullYear();
-        promotion_effective_dates +=  year+ "-" + (month + 1).toString().padStart(2, '0') + "-" + day + "T10:00:00-00:00";
-        const redemption_channel = "ONLINE";
-        const promotion_display_dates = promotion_effective_dates;
-        const generic_redemption_code = "";
-        const minimum_purchase_amount = "";
-        const filter = "";
-        const row = createRowData([promotion_id, product_applicability, offer_type, long_title, promotion_effective_dates, redemption_channel, promotion_display_dates, generic_redemption_code, minimum_purchase_amount, filter])
-        spreadSheet.sheets[0].data[0].rowData.push(row);
+    const accountName = account[0];
+    const accountLanguages = account[1];
+    const accountManager = account[2];
+    const accountAbbreviations = account[3];
+
+    
+
+    let accountSheet = createSheet(accountName, ["promotion_id", "product_applicability", "offer_type", "long_title", "promotion_effective_dates", "redemption_channel", "promotion_display_dates", "generic_redemption_code", "minimum_purchase_amount", "filter"]);
+    
+    for (let j = 0; j  < accountLanguages.length; j++) {
+      const accountLanguage = accountLanguages[j];
+      const accountAbbreviation = accountAbbreviations[j];
+
+      switch(accountLanguage) {
+        case "German":
+
+          for (let i = 0; i < _brandIds.length; i++){
+            const promotion_id = _brandIds[i] + year + MONTHS[month] + accountAbbreviation;
+            
+            const product_applicability = "SPECIFIC_PRODUCTS";
+            
+            const offer_type = "NO_CODE";
+            
+            const long_title = `${_brandDiscounts[i]}% auf ausgewählte ${_brandNames[i]} Produkte`;
+            
+            let promotion_effective_dates_partials = year+ "-" + (month  + 1).toString().padStart(2, '0') + "-" + day + "T10:00:00-00:00/";
+            d.setDate(day + 7);
+            const endMonth = d.getMonth();
+            const endDay = d.getDate();
+            const endYear = d.getFullYear();
+            promotion_effective_dates_partials +=  endYear+ "-" + (endMonth + 1).toString().padStart(2, '0') + "-" + endDay + "T10:00:00-00:00";
+            const promotion_effective_dates = promotion_effective_dates_partials;
+
+            const redemption_channel = "ONLINE";
+            
+            const promotion_display_dates = promotion_effective_dates;
+            
+            const generic_redemption_code = "";
+            
+            const minimum_purchase_amount = "";
+            
+            const filter = "";
+            
+            const row = createRowData([promotion_id, product_applicability, offer_type, long_title, promotion_effective_dates, redemption_channel, promotion_display_dates, generic_redemption_code, minimum_purchase_amount, filter])
+            accountSheet.data[0].rowData.push(row);
+          }
+
+          break;
+        case "English":
+
+          for (let i = 0; i < _brandIds.length; i++){
+            const promotion_id = _brandIds[i] + year + MONTHS[month] + accountAbbreviation;
+            
+            const product_applicability = "SPECIFIC_PRODUCTS";
+            
+            const offer_type = "NO_CODE";
+            
+            const long_title = `${_brandDiscounts[i]}% Off Selected ${_brandNames[i]} Products`;
+            
+            let promotion_effective_dates_partials = year+ "-" + (month  + 1).toString().padStart(2, '0') + "-" + day + "T10:00:00-00:00/";
+            d.setDate(day + 7);
+            const endMonth = d.getMonth();
+            const endDay = d.getDate();
+            const endYear = d.getFullYear();
+            promotion_effective_dates_partials +=  endYear+ "-" + (endMonth + 1).toString().padStart(2, '0') + "-" + endDay + "T10:00:00-00:00";
+            const promotion_effective_dates = promotion_effective_dates_partials;
+
+            const redemption_channel = "ONLINE";
+            
+            const promotion_display_dates = promotion_effective_dates;
+            
+            const generic_redemption_code = "";
+            
+            const minimum_purchase_amount = "";
+            
+            const filter = "";
+            
+            const row = createRowData([promotion_id, product_applicability, offer_type, long_title, promotion_effective_dates, redemption_channel, promotion_display_dates, generic_redemption_code, minimum_purchase_amount, filter])
+            accountSheet.data[0].rowData.push(row);
+          }
+          break;
+
+        case "French":
+
+          for (let i = 0; i < _brandIds.length; i++){
+            const promotion_id = _brandIds[i] + year + MONTHS[month] + accountAbbreviation;
+            
+            const product_applicability = "SPECIFIC_PRODUCTS";
+            
+            const offer_type = "NO_CODE";
+            
+            const long_title = _brandDiscounts[i]+"% de Réduction sur Produits " +_brandNames[i];
+            
+            let promotion_effective_dates_partials = year+ "-" + (month  + 1).toString().padStart(2, '0') + "-" + day + "T10:00:00-00:00/";
+            d.setDate(day + 7);
+            const endMonth = d.getMonth();
+            const endDay = d.getDate();
+            const endYear = d.getFullYear();
+            promotion_effective_dates_partials +=  endYear+ "-" + (endMonth + 1).toString().padStart(2, '0') + "-" + endDay + "T10:00:00-00:00";
+            const promotion_effective_dates = promotion_effective_dates_partials;
+
+            const redemption_channel = "ONLINE";
+            
+            const promotion_display_dates = promotion_effective_dates;
+            
+            const generic_redemption_code = "";
+            
+            const minimum_purchase_amount = "";
+            
+            const filter = "";
+            
+            const row = createRowData([promotion_id, product_applicability, offer_type, long_title, promotion_effective_dates, redemption_channel, promotion_display_dates, generic_redemption_code, minimum_purchase_amount, filter])
+            accountSheet.data[0].rowData.push(row);
+    
+        }
+          break;
+
+      }
+      
+      // Create empty space after language
+      const row = createRowData([])
+      accountSheet.data[0].rowData.push(row);
+      accountSheet.data[0].rowData.push(row);
+      accountSheet.data[0].rowData.push(row);
 
     }
 
-    //empty rows
-    const row = createRowData([])
-    spreadSheet.sheets[0].data[0].rowData.push(row);
-    spreadSheet.sheets[0].data[0].rowData.push(row);
-    spreadSheet.sheets[0].data[0].rowData.push(row);
-    
-    //french
-    for (let i = 0; i < brandIds.length; i++){
-        d = new Date();
-        month = d.getMonth();
-        day = d.getDate();
-        year = d.getFullYear();
+    sheets.push(accountSheet)
+  }
 
-        const promotion_id = brandIds[i] + d.getFullYear() + MONTHS[d.getMonth()] + "CA1";
-        const product_applicability = "SPECIFIC_PRODUCTS";
-        const offer_type = "NO_CODE";
-        const long_title = brandDiscounts[i]+"% de Réduction sur Produits " +brandNames[i];
-        let promotion_effective_dates = year+ "-" + (month  + 1).toString().padStart(2, '0') + "-" + day + "T10:00:00-00:00/";
-        d.setDate(day + 7);
-        month = d.getMonth();
-        day = d.getDate();
-        year = d.getFullYear();
-        promotion_effective_dates +=  year+ "-" + (month + 1).toString().padStart(2, '0') + "-" + day + "T10:00:00-00:00";
-        const redemption_channel = "ONLINE";
-        const promotion_display_dates = promotion_effective_dates;
-        const generic_redemption_code = "";
-        const minimum_purchase_amount = "";
-        const filter = "";
-        const row = createRowData([promotion_id, product_applicability, offer_type, long_title, promotion_effective_dates, redemption_channel, promotion_display_dates, generic_redemption_code, minimum_purchase_amount, filter])
-        spreadSheet.sheets[0].data[0].rowData.push(row);
-
-    }
-
-
-    // Empty Rows
-    spreadSheet.sheets[0].data[0].rowData.push(row);
-    spreadSheet.sheets[0].data[0].rowData.push(row);
-    spreadSheet.sheets[0].data[0].rowData.push(row);
-    
-    //German
-    for (let i = 0; i < brandIds.length; i++){
-        d = new Date();
-        month = d.getMonth();
-        day = d.getDate();
-        year = d.getFullYear();
-
-        const promotion_id = brandIds[i] + d.getFullYear() + MONTHS[d.getMonth()] + "DE";
-        const product_applicability = "SPECIFIC_PRODUCTS";
-        const offer_type = "NO_CODE";
-        const long_title = brandDiscounts[i]+"% auf ausgewählte " + brandNames[i] + " Produkte";
-        let promotion_effective_dates = year+ "-" + (month  + 1).toString().padStart(2, '0') + "-" + day + "T10:00:00-00:00/";
-        d.setDate(day + 7);
-        month = d.getMonth();
-        day = d.getDate();
-        year = d.getFullYear();
-        promotion_effective_dates +=  year+ "-" + (month + 1).toString().padStart(2, '0') + "-" + day + "T10:00:00-00:00";
-        const redemption_channel = "ONLINE";
-        const promotion_display_dates = promotion_effective_dates;
-        const generic_redemption_code = "";
-        const minimum_purchase_amount = "";
-        const filter = "";
-        const row = createRowData([promotion_id, product_applicability, offer_type, long_title, promotion_effective_dates, redemption_channel, promotion_display_dates, generic_redemption_code, minimum_purchase_amount, filter])
-        spreadSheet.sheets[0].data[0].rowData.push(row);
-
-    }
-    
-    return spreadSheet;
+  const spreadsheet = createSpreadSheetWithSheets(`Brands of the Week ${day}/${month + 1}/${year}`, sheets)
+  
+  return spreadsheet
 }
 
 function findMode(array) {
@@ -330,19 +406,43 @@ function createRowData(values){
 }
 
 function createSpreadSheet(title, headers) {
-    var spreadSheet = {
-        properties: {
-          title
-        },
-        sheets: [{
-          data: [{
-            //header row
-            rowData: [createRowData(headers)]
-          }]
+  const spreadSheet = {
+      properties: {
+        title
+      },
+      sheets: [{
+        data: [{
+          //header row
+          rowData: [createRowData(headers)]
         }]
-      }
+      }]
+    }
 
-    return spreadSheet;
+  return spreadSheet;
 }
 
-getData();
+function createSpreadSheetWithSheets(title, sheets) {
+  const spreadSheet = {
+      properties: {
+        title
+      },
+      sheets
+    }
+
+  return spreadSheet;
+}
+
+function createSheet(title, headers) {
+  const sheet = {
+    properties: {
+      title
+    },
+    data: [{
+      rowData: [createRowData(headers)]
+    }]
+  };
+
+  return sheet;
+}
+
+main();
