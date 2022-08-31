@@ -84,8 +84,9 @@ function exportData(auth) {
         console.log(spreadsheet);
         console.log(`Spreadsheet ID: ${spreadsheet.data.spreadsheetId}`);
         SPREADSHEET_ID = spreadsheet.data.spreadsheetId;
+        
         //shares file
-        /*drive.permissions.create({
+        drive.permissions.create({
             "fileId": spreadsheet.data.spreadsheetId,
             "resource": {
                 "role": "writer",
@@ -105,7 +106,7 @@ function exportData(auth) {
           }
         }).then((res) => {
             console.log(res);
-        });*/
+        });
         
         /*axios.post(`https://www.googleapis.com/drive/v3/files/${spreadsheet.data.spreadsheetId}/permissions?sendNotificationEmail=true`, {
             role: "writer",
